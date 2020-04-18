@@ -1,55 +1,210 @@
 # ThreadDemo.java那些事
 
-![这里写图片描述](https://img-blog.csdn.net/20170823170657224?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvbmFsYW5taW5nZGlhbg==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+#### 一、代码与结果
 
-java中有5种线程状态，任意一个时刻一个线程只允许有一个状态，等待与无线等待记为一种：
+> 测试平台及工具
+>
+> - OS：
+>   - intel 64 family 6 model 85 steping 10 genuineintel 2500MHz
+>   - Aliyun Linux release 2.1903 LTS (Hunting Beagle)
+> - Java
+>   - java version "1.8.0_231"
+>   - Java(TM) SE Runtime Environment (build 1.8.0_231-b11)
+>   - Java HotSpot(TM) 64-Bit Server VM (build 25.231-b11, mixed mode)
+> - 编辑器：Visual Studio Code + Remote SSH
+
+###### ThreadDemo.java
+
+```java
+public class thread extends Thread {
+    thread(ThreadGroup a,String name) {
+        super(a,name);
+    }
+
+    public void run() {
+        for (int i = 0; i < 5; i++) {
+            compute();
+        }
+    }
+
+    public static void main(String[] args) {
+        ThreadGroup top=Thread.currentThread().getThreadGroup();
+        thread t1 = new thread(top,"t1");
+        thread t2 = new thread(top,"t2");
+        t1.start();
+        t2.start();
+        for (int i = 0; i < 5; i++) {
+            compute();
+        }
+    }
+
+    static ThreadLocal<Integer> callOfNumber = new ThreadLocal<>();
+
+    static synchronized void compute() {
+        Integer n = (Integer) callOfNumber.get();
+        if (n == null)
+            n = new Integer(1);
+        else
+            n = new Integer(n.intValue() + 1);
+        callOfNumber.set(n);
+        System.out.println("Current Thread is "+Thread.currentThread().getName()+" :"+n);
+        long j = 0;
+        for (long i = 0; i < 1000; i++) {
+            j += i;
+        }
+        try {
+        	Thread.sleep(100);
+        } catch (Exception e) {
+        	e.printStackTrace();
+        }
+        Thread.yield();
+
+    }
+
+    public synchronized static void AllThread() {
+        ThreadGroup currG=Thread.currentThread().getThreadGroup();
+        Thread[] ts=new Thread[currG.activeCount()];
+        currG.enumerate(ts);
+        for (Thread thread : ts) {
+            System.out.println(thread.getName()+" --States----> "+thread.getState());
+        }
+        System.out.println();
+    }
+
+}
+```
+
+###### 输出结果
+
+会发现线程总是在执行结束一个后在进入下一个。
+
+```
+Current Thread is main :1
+Current Thread is main :2
+Current Thread is main :3
+Current Thread is main :4
+Current Thread is main :5
+Current Thread is t2 :1
+Current Thread is t2 :2
+Current Thread is t2 :3
+Current Thread is t2 :4
+Current Thread is t2 :5
+Current Thread is t1 :1
+Current Thread is t1 :2
+Current Thread is t1 :3
+Current Thread is t1 :4
+Current Thread is t1 :5
+```
+
+
+
+#### 二、线程调度原理
+
+java中有以下几种线程状态，一个线程在任何一个时刻只允许有一个状态，等待与无限等待记为一种：
+
+
+
+![0001](pic/%E6%9C%AA%E5%91%BD%E5%90%8D/0001.jpg)
+
+
 
 1. **新建(New)**：创建后尚未启动的线程。
-2. **运行(Runnable)**：Runnable包括操作系统线程状态中的Running和Ready，也就是处于此状态的线程有可能正在执行，也有可能等待CPU为它分配执行时间。线程对象创建后，其他线程调用了该对象的start()方法。该状态的线程位于“可运行线程池”中，变得可运行，只等待获取CPU的使用权。即在就绪状态的进程除CPU之外，其它的运行所需资源都已全部获得。
+2. **运行(Runnable)**：Runnable包括操作系统线程状态中的Running和Ready，也就是处于此状态的线程有可能正在执行，也有可能等待CPU为它分配执行时间。线程对象创建后，其他线程调用了该对象的start()方法。该状态的线程位于“可运行线程池”中，变得可运行，只等待获取CPU的使用权。
 3. **无限期等待(Waiting)**：该状态下线程不会被分配CPU执行时间，要等待被其他线程显式唤醒。如没有设置timeout的object.wait()方法和Thread.join()方法，以及LockSupport.park()方法。
 4. **限期等待(Timed Waiting)**：不会被分配CPU执行时间，不过无须等待被其他线程显式唤醒，在一定时间之后会由系统自动唤醒。如Thread.sleep()，设置了timeout的object.wait()和thread.join()，LockSupport.parkNanos()以及LockSupport.parkUntil()方法。
-5. **阻塞（Blocked）**:线程被阻塞了。与等待状态的区别是：阻塞在等待着获取到一个排他锁，这个事件将在另外一个线程放弃这个锁的时候发生；而等待则在等待一段时间，或唤醒动作的发生。在等待进入同步区域时，线程将进入这种状态。
+5. **阻塞（Blocked）**:正在阻塞的线程在等待着获取到一个排他锁，或者在被唤醒重新获得这个锁时产生。
 6. **结束(Terminated)**：线程执行完了或者因异常退出了run()方法，该线程结束生命周期。
 
-补充
+#### 三、ObjectMonitor
 
-- 等待阻塞：运行的线程执行wait()方法，该线程会释放占用的所有资源，JVM会把该线程放入“等待池”中。进入这个状态后，是不能自动唤醒的，必须依靠其他线程调用notify()或notifyAll()方法才能被唤醒，即无限期等待。
-- **同步阻塞：运行的线程在获取对象的同步锁时，若该同步锁被别的线程占用，则JVM会把该线程放入“锁池”中。**
-- 其他阻塞：运行的线程执行sleep()或join()方法，或者发出了I/O请求时，JVM会把该线程置为阻塞状态。当sleep()状态超时、join()等待线程终止或者超时、或者I/O处理完毕时，线程重新转入就绪状态。即限期等待。
+Java中的每个对象都有一个ObjectMonitor类，作为其锁机制的实现方式。在Java HotSpot中，其生成函数如下：
 
-#### 结果详解
+```c++
+ObjectMonitor() {
+    _header       = NULL;
+    _count        = 0;
+    _waiters      = 0,
+    _recursions   = 0;
+    _object       = NULL;
+    _owner        = NULL;
+    _WaitSet      = NULL;
+    _WaitSetLock  = 0 ;
+    _Responsible  = NULL ;
+    _succ         = NULL ;
+    _cxq          = NULL ;
+    FreeNext      = NULL ;
+    _EntryList    = NULL ;
+    _SpinFreq     = 0 ;
+    _SpinClock    = 0 ;
+    OwnerIsThread = 0 ;
+    _previous_owner_tid = 0;
+  }
+```
 
-> 平台：Linux，2核，JDK1.8
+- WaitSet存放通过wait()进入阻塞的线程
+- EntryList存放被唤醒的线程
+- cxq存放申请该对象锁失败的线程，在默认情况下是LIFO的双向队列
+- owner是当前拥有对象锁的线程
+- Responsible是最近一次申请锁失败的线程，一般情况下指向cxq的头部
 
-![image-20200416100957283](pic/%E6%9C%AA%E5%91%BD%E5%90%8D/image-20200416100957283.png)
+#### 四、结果详解
 
-1. jvm启动，启动main进程，main进入**运行状态**
 
-2. main进程逐条执行语句，在创建两个线程（记为t1和t2）后，两个线程进入**初始状态**
 
-3. main进程执行到**start()**语句后，t1和t2进入可运行线程池，即**就绪状态**，如果机器是多核的话，此时t1和t2就会按顺序进入**运行状态**
+1. jvm启动,参数为
 
-4. 在t1和t2进行start()和run()的时候，main也在继续运行，进入了computer()。由于compute()同步锁的原因，t1和t2进入**锁池状态**
+   ```
+   -agentlib:jdwp=transport=dt_socket,server=n,suspend=y,address=localhost:port -Dfile.encoding=UTF-8 -cp /root/.vscode-server/data/bin ThreadDemo 
+   ```
 
-5. main进程在compute()中运行到sleep()把自己放入了**阻塞状态**，但由于sleep()不会释放锁，因此其他两个线程并不会从锁池状态中出来
+   
 
-6. main在sleep()结束后进入**就绪状态**，然后进入**运行状态**，执行**Thread.yield()**，让出CPU资源，不释放锁，并进入**就绪状态**，但其他线程拿不到锁，还是由main线程进入**运行状态**，然后结束compute()，再次返回**就绪状态**
+2. 启动main进程，main进入**运行状态**
 
-7. 此时由于某种原因（比如就绪状态的线程比在锁池状态的线程更快的拿到compute()的锁），main重新进入**运行状态**，其他线程依旧在**锁池状态**中
+3. main进程逐条执行语句，在创建两个线程（记为t1和t2）后，两个线程进入**NEW**
 
-8. 在main线程执行结束进入**终止状态**后，由其他线程随机获得锁，然后执行至**终止状态**
+4. main进程执行到**start()**语句后，t1和t2进入可运行线程池，即**RUNNING**，等待分配时间片后，t1和t2就运行
 
-9. 最后一个线程结束后进入**终止状态**，JVM退出
+5. 在t1和t2进行start()和run()的时候，main也在继续运行，进入了computer()。由于compute()是静态方法，Synchronized的实现是通过**ThreadDemo类**实现的。t1和t2申请这个锁失败，进入**BLOCKED**
 
-#### 验证结果的分析
+6. main进程在compute()中运行到sleep()进入**BLOCKED**，但由于sleep()不会释放锁，因此其他两个线程依然处于BLOCKED
 
-- 第3步时，如果main在进入compute()前被其他线程抢先，输出就会改变顺序。在start()后增加sleep()，验证如下：
+7. main在sleep()结束后进入**就绪状态**，然后进入**运行状态**，执行**Thread.yield()**，让出CPU资源，但不释放锁，最终由main线程获得CPU资源，然后结束compute()
 
-  ![image-20200416111825742](pic/%E6%9C%AA%E5%91%BD%E5%90%8D/image-20200416111825742.png)
+8. 此时由三个线程一起竞争锁，main获得compute()的锁，重新进入代码执行，其他线程依旧在**BLOCKED**中
 
-> 可以看出main线程不再是第一个。首先由t1和t2抢夺第一个，再由剩下的和main抢夺第二个。
+9. 在main线程执行结束进入**TERMINATED**后，由其他线程通过竞争获得锁，然后执行至最后
 
-- 第5步，线程不会释放锁，可以在compute()的sleep()后打印所有线程状态，代码如下：
+10. 最后一个线程结束后进入**TERMINATED**
+
+11. 退出JVM
+
+#### 四、运行结果解释与验证
+
+- 第5步时，如果main在进入compute()前被其他线程抢先，输出就会改变顺序。在start()后增加Thread.sleep(1)，验证如下：
+
+  ```
+  Current Thread is t1 :1
+  Current Thread is t1 :2
+  Current Thread is t1 :3
+  Current Thread is t1 :4
+  Current Thread is t1 :5
+  Current Thread is main :1
+  Current Thread is main :2
+  Current Thread is main :3
+  Current Thread is main :4
+  Current Thread is main :5
+  Current Thread is t2 :1
+  Current Thread is t2 :2
+  Current Thread is t2 :3
+  Current Thread is t2 :4
+  Current Thread is t2 :5
+  ```
+
+  在测试的15次中，顺序为 $t1\Longrightarrow main\Longrightarrow t2$ 的有9组，顺序为 $t1\Longrightarrow main\Longrightarrow t2$ 的有6组。
+
+
+- 第6步，线程不会释放锁，可以在compute()的sleep()前后打印所有线程状态，代码如下：
 
   ```java
   public synchronized static void AllThread() {
@@ -65,23 +220,74 @@ java中有5种线程状态，任意一个时刻一个线程只允许有一个状
 
   验证如下：
 
-  ![image-20200416113129376](pic/%E6%9C%AA%E5%91%BD%E5%90%8D/image-20200416113129376.png)
+  ```
+  Current Thread is t1 :4
+  ==========================
+  main --States----> BLOCKED
+  t1 --States----> RUNNABLE
+  t2 --States----> BLOCKED
+  
+  main --States----> BLOCKED
+  t1 --States----> RUNNABLE
+  t2 --States----> BLOCKED
+  ```
+  
+  测试的10组中，在sleep()前后其他线程的**BLOCKED**状态不会改变。
+  
+- 第8步中，main线程退出Monitor后，Monitor会去cxq队列中寻找头部元素。如果在Monitor寻找之前，main线程重新申请了锁，就会更新Responsible，Monitor再去寻找时，就会把锁交给main线程。
 
-  ![image-20200416113211734](pic/%E6%9C%AA%E5%91%BD%E5%90%8D/image-20200416113211734.png)
+  如果在ThreadDemo.java文件中每一次compute()之后休息1微秒，输出结果如下：
+  
+  ```
+  Current Thread is main :1
+  Current Thread is t2 :1
+  Current Thread is t1 :1
+  Current Thread is t2 :2
+  Current Thread is main :2
+  Current Thread is t2 :3
+  Current Thread is t1 :2
+  Current Thread is t2 :4
+  Current Thread is main :3
+  Current Thread is t2 :5
+  Current Thread is t1 :3
+  Current Thread is main :4
+  Current Thread is t1 :4
+  Current Thread is main :5
+  Current Thread is t1 :5
+  ```
+  
+  可以发现没有一个线程可以连续获得compute()的锁。
+  
+- 在compute()函数起始添加System.nanoTime()，观察输出：
 
-  > 可以看出除去第一个外在sleep()前后除了当前线程外都处于**BLOCKED**
-  >
-  > 第一组的t2应该是处在run()方法中的第一行，即开始for循环的时候
+  ```
+  At 1295416633661386    Current Thread is t1 :1
+  At 1295416736579857    Current Thread is t1 :2
+  At 1295416836980811    Current Thread is t1 :3
+  At 1295416937331809    Current Thread is t1 :4
+  At 1295417037702434    Current Thread is t1 :5
+  At 1295417138115853    Current Thread is t2 :1
+  At 1295417238593940    Current Thread is t2 :2
+  At 1295417338957621    Current Thread is t2 :3
+  At 1295417439322622    Current Thread is t2 :4
+  At 1295417539728712    Current Thread is t2 :5
+  At 1295417640141299    Current Thread is main :1
+  At 1295417740569277    Current Thread is main :2
+  At 1295417840979466    Current Thread is main :3
+  At 1295417941350934    Current Thread is main :4
+  At 1295418041759788    Current Thread is main :5
+  ```
 
-- 关于第7步的“某种原因”，笔者并没有一个很好的验证方法，如果各位有好的思路，欢迎分享。但是其他平台上的不同结果可以由此来解释。
+  可以看出，在除去compute()中sleep()等待的100微秒外，执行其他代码所需时间不超过半
 
-  如果机器运行快，在前一个线程compute()结束后进入就绪状态又进入运行状态，在其他线程还未获取锁的情况下，运行完for循环进入compute()。
+#### 五、参考文献
 
-  如果运行慢，前一个线程可能在运行for循环时被其它线程抢先进入compute()，从而输出结果产生了乱序。
+1. 计算机操作系统，第四版，汤小丹、梁红兵等
+2. Thinking in Java，Fourth Edition，Bruce Eckel
+3. 让你彻底理解Synchronized，你听__，https://www.jianshu.com/p/d53bf830fa09
+4. 深入理解Java内存模型（二）——重排序，程晓明，https://www.infoq.cn/article/java-memory-model-2/
+5. OpenJDK，ObjectMonitor.cpp，http://hg.openjdk.java.net/jdk8u/jdk8u/hotspot/file/ee4d5e999653/src/share/vm/runtime/objectMonitor.cpp
 
-- 对与优先度，只是一个参考，并不能保证线程的运行会按照优先度的顺序执行。如果想要让线程按顺序执行，要借助多个锁来完成。
+#### 六、作者
 
-  一个可能是在同个状态下的不同线程之间按优先度顺序执行，不同状态的线程之间没有可比性。
-
-- 释放锁是Object级别的操作，只有wait()和join()会释放锁，wait()是Object的方法，join()是调用wait()实现的。
-
+关凯宁，南开大学2017级本科生，个人邮箱：1710028@mail.nankai.edu.cn
